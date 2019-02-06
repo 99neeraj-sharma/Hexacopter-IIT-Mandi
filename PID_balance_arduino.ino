@@ -2,8 +2,7 @@
 #include <Servo.h>
 
 
-Servo right_prop;
-Servo left_prop;
+Servo right_prop_X,left_prop_X,right_prop_Y,left_prop_Y,right_prop_Z,left_prop_Z;
 
 /*MPU-6050 gives you 16 bits data so you have to create some 16int constants
  * to store the data for accelerations and gyro*/
@@ -22,10 +21,16 @@ float elapsedTime, time, timePrev;
 int i;
 float rad_to_deg = 180/3.141592654;
 
-float PID, pwmLeft, pwmRight, error, previous_error;
-float pid_p=0;
-float pid_i=0;
-float pid_d=0;
+float PID_X,PID_Y,PID_Z, pwmLeft_X, pwmRight_X, error_X, previous_error_X,pwmLeft_Y, pwmRight_Y, error_Y, previous_error_Y,pwmLeft_Z, pwmRight_Z, error_Z, previous_error_Z;
+float pid_px=0;
+float pid_ix=0;
+float pid_dx=0;
+float pid_iy=0;
+float pid_iz=0;
+float pid_dy=0;
+float pid_dz=0;
+float pid_py=0;
+float pid_pz=0;
 /////////////////PID CONSTANTS/////////////////
 double kp=3.55;//3.55
 double ki=0.005;//0.003
@@ -44,16 +49,15 @@ void setup() {
   Wire.write(0);
   Wire.endTransmission(true);
   Serial.begin(250000);
-  right_prop.attach(3); //attatch the right motor to pin 3
-  left_prop.attach(5);  //attatch the left motor to pin 5
+//  right_prop_X.attach(3); //attatch the right motor to pin 3
+//  left_prop_X.attach(5);  //attatch the left motor to pin 5
 
   time = millis(); //Start counting time in milliseconds
   /*In order to start up the ESCs we have to send a min value
    * of PWM to them before connecting the battery. Otherwise
    * the ESCs won't start up or enter in the configure mode.
    * The min value is 1000us and max is 2000us, REMEMBER!*/
-  left_prop.writeMicroseconds(1000); 
-  right_prop.writeMicroseconds(1000);
+
   delay(7000); /*Give some delay, 7s, to have time to connect
                 *the propellers and let everything start up*/ 
 }//end of setup void
@@ -109,11 +113,11 @@ void loop() {
      Acceleration_angle[0] = atan((Acc_rawY/16384.0)/sqrt(pow((Acc_rawX/16384.0),2) + pow((Acc_rawZ/16384.0),2)))*rad_to_deg;
      /*---Y---*/
      Acceleration_angle[1] = atan(-1*(Acc_rawX/16384.0)/sqrt(pow((Acc_rawY/16384.0),2) + pow((Acc_rawZ/16384.0),2)))*rad_to_deg;
- 
+     /*----YAW---*/
+     Acceleration_angle[2] = atan(-1*(Acc_rawZ/16384.0)/sqrt(pow((Acc_rawX/16384.0),2) + pow((Acc_rawZ/16384.0),2)))*rad_to_deg;
    /*Now we read the Gyro data in the same way as the Acc data. The adress for the
     * gyro data starts at 0x43. We can see this adresses if we look at the register map
-    * of the MPU6050. In this case we request just 4 values. W don¡t want the gyro for 
-    * the Z axis (YAW).*/
+    * of the MPU6050. In this case we request just 4 values..*/
     
    Wire.beginTransmission(0x68);
    Wire.write(0x43); //Gyro data first adress
@@ -122,6 +126,7 @@ void loop() {
    
    Gyr_rawX=Wire.read()<<8|Wire.read(); //Once again we shif and sum
    Gyr_rawY=Wire.read()<<8|Wire.read();
+   Gyr_rawZ=Wire.read()<<8|Wire.read();
  
    /*Now in order to obtain the gyro data in degrees/seconda we have to divide first
    the raw value by 131 because that's the value that the datasheet gives us*/
@@ -130,6 +135,8 @@ void loop() {
    Gyro_angle[0] = Gyr_rawX/131.0; 
    /*---Y---*/
    Gyro_angle[1] = Gyr_rawY/131.0;
+  /*----Z---*/
+   Gyro_angle[2] = Gyr_rawZ/131.0;
 
    /*Now in order to obtain degrees we have to multiply the degree/seconds
    *value by the elapsedTime.*/
@@ -140,6 +147,8 @@ void loop() {
    Total_angle[0] = 0.98 *(Total_angle[0] + Gyro_angle[0]*elapsedTime) + 0.02*Acceleration_angle[0];
    /*---Y axis angle---*/
    Total_angle[1] = 0.98 *(Total_angle[1] + Gyro_angle[1]*elapsedTime) + 0.02*Acceleration_angle[1];
+   /*---Z axis Angl*/
+   Total_angle[2] = 0.98 *(Total_angle[2] + Gyro_angle[2]*elapsedTime) + 0.02*Acceleration_angle[2];
    
    /*Now we have our angles in degree and values from -10º0 to 100º aprox*/
     //Serial.println(Total_angle[1]);
@@ -153,12 +162,17 @@ the balance*/
 
 /*First calculate the error between the desired angle and 
 *the real measured angle*/
-error = Total_angle[1] - desired_angle;
+
+error_Y = Total_angle[1] - desired_angle;
+error_Z = Total_angle[2]-desired_angle;
+error_X = Total_angle[0]-desired_angle;
     
 /*Next the proportional value of the PID is just a proportional constant
 *multiplied by the error*/
 
-pid_p = kp*error;
+pid_px = kp*error_X;
+pid_py = kp*error_Y;
+pid_pz = kp*error_Z;
 
 /*The integral part should only act if we are close to the
 desired position but we want to fine tune the error. That's
@@ -166,9 +180,19 @@ why I've made a if operation for an error between -2 and 2 degree.
 To integrate we just sum the previous integral value with the
 error multiplied by  the integral constant. This will integrate (increase)
 the value each loop till we reach the 0 point*/
-if(-3 <error <3)
+if(-3 <error_X <3)
 {
-  pid_i = pid_i+(ki*error);  
+  pid_ix = pid_ix+(ki*error_X);  
+}
+
+if(-3 <error_Y <3)
+{
+  pid_iy = pid_iy+(ki*error_Y);  
+}
+
+if(-3 <error_Z <3)
+{
+  pid_iz = pid_iz+(ki*error_Z);  
 }
 
 /*The last part is the derivate. The derivate acts upon the speed of the error.
@@ -177,28 +201,62 @@ time divided by that time. For taht we will use a variable called previous_error
 We substract that value from the actual error and divide all by the elapsed time. 
 Finnaly we multiply the result by the derivate constant*/
 
-pid_d = kd*((error - previous_error)/elapsedTime);
+pid_dx = kd*((error_X - previous_error_X)/elapsedTime);
+
+pid_dy = kd*((error_Y - previous_error_Y)/elapsedTime);
+
+pid_dz = kd*((error_Z - previous_error_Z)/elapsedTime);
 
 /*The final PID values is the sum of each of this 3 parts*/
-PID = pid_p + pid_i + pid_d;
+PID_X = pid_px + pid_ix + pid_dx;
+
+PID_Y = pid_py + pid_iy + pid_dy;
+
+PID_Z = pid_pz + pid_iz + pid_dz;
+
 
 /*We know taht the min value of PWM signal is 1000us and the max is 2000. So that
 tells us that the PID value can/s oscilate more than -1000 and 1000 because when we
 have a value of 2000us the maximum value taht we could sybstract is 1000 and when
 we have a value of 1000us for the PWM sihnal, the maximum value that we could add is 1000
 to reach the maximum 2000us*/
-if(PID < -1000)
+if(PID_X < -1000)
 {
-  PID=-1000;
+  PID_X=-1000;
 }
-if(PID > 1000)
+if(PID_X > 1000)
 {
-  PID=1000;
+  PID_X=1000;
+}
+
+if(PID_Y < -1000)
+{
+  PID_Y=-1000;
+}
+if(PID_Y > 1000)
+{
+  PID_Y=1000;
+}
+
+
+if(PID_Z < -1000)
+{
+  PID_Z=-1000;
+}
+if(PID_Z > 1000)
+{
+  PID_Z=1000;
 }
 
 /*Finnaly we calculate the PWM width. We sum the desired throttle and the PID value*/
-pwmLeft = throttle + PID;
-pwmRight = throttle - PID;
+pwmLeft_X = throttle + PID_X;
+pwmRight_X = throttle - PID_X;
+
+pwmLeft_Y = throttle + PID_Y;
+pwmRight_Y = throttle - PID_Y;
+
+pwmLeft_Z = throttle + PID_Z;
+pwmRight_Z = throttle - PID_Z;
 
 
 /*Once again we map the PWM values to be sure that we won't pass the min
@@ -206,28 +264,72 @@ and max values. Yes, we've already maped the PID values. But for example, for
 throttle value of 1300, if we sum the max PID value we would have 2300us and
 that will mess up the ESC.*/
 //Right
-if(pwmRight < 1000)
+if(pwmRight_X < 1000)
 {
-  pwmRight= 1000;
+  pwmRight_X= 1000;
 }
-if(pwmRight > 2000)
+if(pwmRight_X > 2000)
 {
-  pwmRight=2000;
+  pwmRight_X=2000;
 }
 //Left
-if(pwmLeft < 1000)
+if(pwmLeft_X < 1000)
 {
-  pwmLeft= 1000;
+  pwmLeft_X= 1000;
 }
-if(pwmLeft > 2000)
+if(pwmLeft_X > 2000)
 {
-  pwmLeft=2000;
+  pwmLeft_X=2000;
+}
+
+
+//Right
+if(pwmRight_Y < 1000)
+{
+  pwmRight_Y= 1000;
+}
+if(pwmRight_Y > 2000)
+{
+  pwmRight_Y=2000;
+}
+//Left
+if(pwmLeft_Y < 1000)
+{
+  pwmLeft_Y= 1000;
+}
+if(pwmLeft_Y > 2000)
+{
+  pwmLeft_Y=2000;
+}
+
+
+//Right
+if(pwmRight_Z < 1000)
+{
+  pwmRight_Z= 1000;
+}
+if(pwmRight_Z > 2000)
+{
+  pwmRight_Z=2000;
+}
+//Left
+if(pwmLeft_Z < 1000)
+{
+  pwmLeft_Z= 1000;
+}
+if(pwmLeft_Z > 2000)
+{
+  pwmLeft_Z=2000;
 }
 
 /*Finnaly using the servo function we create the PWM pulses with the calculated
 width for each pulse*/
-left_prop.writeMicroseconds(pwmLeft);
-right_prop.writeMicroseconds(pwmRight);
-previous_error = error; //Remember to store the previous error.
+
+previous_error_X = error_X; //Remember to store the previous error.
+
+previous_error_Y = error_Y; //Remember to store the previous error.
+
+
+previous_error_Z = error_Z; //Remember to store the previous error.
 
 }//end of loop void
